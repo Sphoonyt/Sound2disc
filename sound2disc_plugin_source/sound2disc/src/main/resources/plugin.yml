@@ -1,0 +1,23 @@
+name: Sound2Disc
+version: 1.0.0
+main: com.sound2disc.Sound2Disc
+api-version: 1.20
+description: Convert audio files into playable Minecraft music discs
+authors: [Sound2Disc]
+
+commands:
+  sound2disc:
+    description: Sound2Disc command
+    usage: |
+      /sound2disc give <dropbox/mediafire URL or filename>
+      /sound2disc list
+      /sound2disc reload
+    permission: sound2disc.use
+
+permissions:
+  sound2disc.use:
+    description: Access to sound2disc commands
+    default: op
+  sound2disc.admin:
+    description: Admin access (reload, manage)
+    default: op
