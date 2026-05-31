@@ -1,0 +1,6 @@
+resource-pack-port: 8765
+server-ip: ""
+max-duration-seconds: 300
+ogg-quality: 6
+jukebox-sound-range: 65.0
+disc-name-format: "&b✦ Custom Disc &7[&f%name%&7]"
