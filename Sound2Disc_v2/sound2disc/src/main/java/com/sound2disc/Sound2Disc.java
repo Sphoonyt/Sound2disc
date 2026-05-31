@@ -2,6 +2,7 @@ package com.sound2disc;
 
 import com.sound2disc.commands.Sound2DiscCommand;
 import com.sound2disc.listeners.JukeboxListener;
+import com.sound2disc.listeners.PackListener;
 import com.sound2disc.managers.ResourcePackManager;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
@@ -18,6 +19,7 @@ public class Sound2Disc extends JavaPlugin {
 
     private static Sound2Disc instance;
     private ResourcePackManager resourcePackManager;
+    private PackListener packListener;
 
     private static final String FFMPEG_URL =
         "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz";
@@ -39,7 +41,6 @@ public class Sound2Disc extends JavaPlugin {
             } catch (Exception e) {
                 getLogger().severe("Auto-download failed: " + e.getMessage());
                 getLogger().severe("Place an 'ffmpeg' binary manually in: " + getDataFolder());
-                getLogger().severe("Plugin will load but conversions will fail.");
             }
         } else {
             getLogger().info("FFmpeg detected!");
@@ -48,12 +49,14 @@ public class Sound2Disc extends JavaPlugin {
         resourcePackManager = new ResourcePackManager(this);
         resourcePackManager.initialize();
 
+        packListener = new PackListener(this);
+
         getCommand("sound2disc").setExecutor(new Sound2DiscCommand(this));
         getCommand("sound2disc").setTabCompleter(new Sound2DiscCommand(this));
         getServer().getPluginManager().registerEvents(new JukeboxListener(this), this);
+        getServer().getPluginManager().registerEvents(packListener, this);
 
-        getLogger().info("Sound2Disc enabled! Use /sound2disc give <URL>");
-        getLogger().info("Resource pack URL: " + resourcePackManager.getPackUrl());
+        getLogger().info("Sound2Disc enabled!");
     }
 
     @Override
@@ -61,7 +64,7 @@ public class Sound2Disc extends JavaPlugin {
         if (resourcePackManager != null) resourcePackManager.shutdown();
     }
 
-    // ── FFmpeg Detection ───────────────────────────────────────────────────────
+    public PackListener getPackListener() { return packListener; }
 
     private boolean checkFFmpeg() {
         if (getLocalFfmpeg().exists()) return true;
@@ -71,9 +74,7 @@ public class Sound2Disc extends JavaPlugin {
             p.getInputStream().transferTo(OutputStream.nullOutputStream());
             p.waitFor();
             return p.exitValue() == 0;
-        } catch (Exception e) {
-            return false;
-        }
+        } catch (Exception e) { return false; }
     }
 
     public String getFfmpegPath() {
@@ -85,29 +86,21 @@ public class Sound2Disc extends JavaPlugin {
         return new File(getDataFolder(), "ffmpeg");
     }
 
-    // ── Auto-Downloader ────────────────────────────────────────────────────────
-
     private void downloadFFmpeg() throws Exception {
         File dataFolder = getDataFolder();
         File tarFile = new File(dataFolder, "ffmpeg.tar.xz");
         File ffmpegBin = new File(dataFolder, "ffmpeg");
 
-        // Download
         getLogger().info("Downloading FFmpeg static build (~75 MB)...");
         downloadFile(FFMPEG_URL, tarFile);
         getLogger().info("Download complete. Extracting using Java...");
 
-        // Extract using pure Java (Apache Commons Compress + XZ for Java)
         extractFfmpegFromTarXz(tarFile, ffmpegBin);
-
-        // Clean up
         tarFile.delete();
 
-        if (!ffmpegBin.exists() || ffmpegBin.length() == 0) {
+        if (!ffmpegBin.exists() || ffmpegBin.length() == 0)
             throw new Exception("Extraction completed but ffmpeg binary not found.");
-        }
 
-        // Make executable
         try {
             Set<PosixFilePermission> perms = new HashSet<>(Files.getPosixFilePermissions(ffmpegBin.toPath()));
             perms.add(PosixFilePermission.OWNER_EXECUTE);
@@ -118,10 +111,8 @@ public class Sound2Disc extends JavaPlugin {
             ffmpegBin.setExecutable(true);
         }
 
-        // Verify
-        if (!checkFFmpeg()) {
+        if (!checkFFmpeg())
             throw new Exception("FFmpeg was extracted but failed to execute. Possible architecture mismatch.");
-        }
 
         getLogger().info("FFmpeg ready at: " + ffmpegBin.getAbsolutePath());
     }
@@ -135,15 +126,11 @@ public class Sound2Disc extends JavaPlugin {
             TarArchiveEntry entry;
             while ((entry = tar.getNextEntry()) != null) {
                 String name = entry.getName();
-                // Match e.g. "ffmpeg-6.1-amd64-static/ffmpeg" — the binary, not ffprobe/ffplay
                 if (name.endsWith("/ffmpeg") && !name.endsWith("/ffprobe") && !name.endsWith("/ffplay")) {
-                    getLogger().info("Found ffmpeg binary in archive: " + name);
+                    getLogger().info("Found ffmpeg binary: " + name);
                     try (FileOutputStream fos = new FileOutputStream(outputFile)) {
-                        byte[] buf = new byte[65536];
-                        int n;
-                        while ((n = tar.read(buf)) != -1) {
-                            fos.write(buf, 0, n);
-                        }
+                        byte[] buf = new byte[65536]; int n;
+                        while ((n = tar.read(buf)) != -1) fos.write(buf, 0, n);
                     }
                     getLogger().info("Extracted ffmpeg (" + (outputFile.length() / 1024 / 1024) + " MB)");
                     return;
@@ -176,26 +163,21 @@ public class Sound2Disc extends JavaPlugin {
         if (status != 200) throw new Exception("HTTP " + status + " from " + urlStr);
 
         long total = conn.getContentLengthLong();
-        try (InputStream in = conn.getInputStream();
-             FileOutputStream out = new FileOutputStream(dest)) {
-            byte[] buf = new byte[65536];
-            long downloaded = 0;
-            int n, lastPct = -1;
+        try (InputStream in = conn.getInputStream(); FileOutputStream out = new FileOutputStream(dest)) {
+            byte[] buf = new byte[65536]; long downloaded = 0; int n, lastPct = -1;
             while ((n = in.read(buf)) != -1) {
                 out.write(buf, 0, n);
                 downloaded += n;
                 if (total > 0) {
-                    int pct = (int) (downloaded * 100 / total);
+                    int pct = (int)(downloaded * 100 / total);
                     if (pct / 10 != lastPct / 10) {
                         lastPct = pct;
                         getLogger().info("Downloading FFmpeg: " + pct + "% ("
-                            + (downloaded / 1024 / 1024) + " MB / " + (total / 1024 / 1024) + " MB)");
+                            + (downloaded/1024/1024) + " MB / " + (total/1024/1024) + " MB)");
                     }
                 }
             }
-        } finally {
-            conn.disconnect();
-        }
+        } finally { conn.disconnect(); }
     }
 
     public static Sound2Disc getInstance() { return instance; }
