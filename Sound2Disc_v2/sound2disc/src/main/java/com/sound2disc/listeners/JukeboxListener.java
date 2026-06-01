@@ -1,19 +1,31 @@
 package com.sound2disc.listeners;
 
 import com.sound2disc.Sound2Disc;
-import org.bukkit.*;
-import org.bukkit.block.*;
-import org.bukkit.block.data.type.Jukebox;
+import org.bukkit.ChatColor;
+import org.bukkit.GameMode;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.Particle;
+import org.bukkit.SoundCategory;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
-import org.bukkit.event.*;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
-import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.NamespacedKey;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class JukeboxListener implements Listener {
 
@@ -35,8 +47,6 @@ public class JukeboxListener implements Listener {
         this.plugin = plugin;
         SOUND_KEY = new NamespacedKey(plugin, "sound_key");
     }
-
-    // ── Disc Item Factory ──────────────────────────────────────────────────────
 
     public static ItemStack createDisc(Sound2Disc plugin, String soundKey, String displayName) {
         NamespacedKey key = new NamespacedKey(plugin, "sound_key");
@@ -65,8 +75,6 @@ public class JukeboxListener implements Listener {
         return item.getItemMeta().getPersistentDataContainer().get(SOUND_KEY, PersistentDataType.STRING);
     }
 
-    // ── Jukebox Interaction ────────────────────────────────────────────────────
-
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
@@ -81,70 +89,48 @@ public class JukeboxListener implements Listener {
         boolean jukeboxHasCustom  = activeJukeboxes.containsKey(loc);
 
         if (holdingCustomDisc) {
-            // ALWAYS cancel — we handle everything manually
             event.setCancelled(true);
-
             String soundKey = getSoundKey(hand);
             if (soundKey == null) return;
 
-            // Stop and eject whatever is currently playing
             if (jukeboxHasCustom) {
                 ejectCustomDisc(block, null);
             } else {
-                // Stop any vanilla sound + clear vanilla jukebox state
                 forceStopJukebox(block);
             }
 
-            // Take disc from player
             ItemStack discCopy = hand.clone();
             discCopy.setAmount(1);
             if (player.getGameMode() != GameMode.CREATIVE) {
                 hand.setAmount(hand.getAmount() - 1);
             }
 
-            // Store in our map — do NOT call setRecord() at all
             activeJukeboxes.put(loc, new ActiveDisc(soundKey, discCopy));
-
-            // Play the custom sound to all nearby players
             playCustomSound(loc, soundKey);
 
-            // Visual: note particles
             loc.getWorld().spawnParticle(Particle.NOTE, loc.clone().add(0.5, 1.2, 0.5), 6, 0.5, 0.3, 0.5, 0);
-
             player.sendMessage(ChatColor.GREEN + "♪ Now playing: " + ChatColor.WHITE + soundKey);
 
         } else if (jukeboxHasCustom && (hand == null || hand.getType() == Material.AIR)) {
-            // Right-click with empty hand → eject
             event.setCancelled(true);
             ejectCustomDisc(block, player);
         }
     }
 
-    // ── Eject ──────────────────────────────────────────────────────────────────
-
     private void ejectCustomDisc(Block block, Player player) {
         Location loc = block.getLocation();
         ActiveDisc active = activeJukeboxes.remove(loc);
         if (active == null) return;
-
-        // Stop custom sound
         stopCustomSound(loc, active.soundKey);
-
-        // Drop the disc item
         loc.getWorld().dropItemNaturally(loc.clone().add(0.5, 1.0, 0.5), active.discItem);
-
         if (player != null) player.sendMessage(ChatColor.YELLOW + "⏏ Disc ejected.");
     }
-
-    // ── Sound Playback ─────────────────────────────────────────────────────────
 
     private void playCustomSound(Location loc, String soundKey) {
         float range = (float) plugin.getConfig().getDouble("jukebox-sound-range", 65.0);
         for (Player p : loc.getWorld().getPlayers()) {
             if (p.getLocation().distance(loc) <= range) {
-                // Stop ALL record sounds first to be safe
                 p.stopSound(SoundCategory.RECORDS);
-                // Play our custom sound
                 p.playSound(loc, "sound2disc:" + soundKey, SoundCategory.RECORDS, 4.0f, 1.0f);
             }
         }
@@ -159,9 +145,7 @@ public class JukeboxListener implements Listener {
         }
     }
 
-    // Completely wipe any vanilla jukebox state and sounds
     private void forceStopJukebox(Block block) {
-        // Stop vanilla sounds for all nearby players
         Location loc = block.getLocation();
         float range = (float) plugin.getConfig().getDouble("jukebox-sound-range", 65.0);
         for (Player p : loc.getWorld().getPlayers()) {
@@ -169,7 +153,6 @@ public class JukeboxListener implements Listener {
                 p.stopSound(SoundCategory.RECORDS);
             }
         }
-        // Clear block state
         if (block.getState() instanceof org.bukkit.block.Jukebox) {
             org.bukkit.block.Jukebox jb = (org.bukkit.block.Jukebox) block.getState();
             jb.stopPlaying();
@@ -177,8 +160,6 @@ public class JukeboxListener implements Listener {
             jb.update(true);
         }
     }
-
-    // ── Block Break ────────────────────────────────────────────────────────────
 
     @EventHandler
     public void onBlockBreak(BlockBreakEvent event) {
@@ -188,8 +169,6 @@ public class JukeboxListener implements Listener {
             ejectCustomDisc(block, null);
         }
     }
-
-    // ── Public API ─────────────────────────────────────────────────────────────
 
     public void stopAll() {
         for (Location loc : new HashSet<>(activeJukeboxes.keySet())) {
