@@ -218,7 +218,8 @@ public class ResourcePackManager {
         Iterator<String> it = registeredSounds.iterator();
         while (it.hasNext()) {
             String key = it.next();
-            sb.append("  \"").append(key).append("\": {\"sounds\": [{\"name\": \"sound2disc/")
+            // Name is just the key — Minecraft resolves it as assets/sound2disc/sounds/<key>.ogg
+            sb.append("  \"").append(key).append("\": {\"sounds\": [{\"name\": \"")
               .append(key).append("\", \"stream\": true}]}");
             if (it.hasNext()) sb.append(",");
             sb.append("\n");
