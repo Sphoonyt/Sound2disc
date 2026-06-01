@@ -20,6 +20,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.NamespacedKey;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -31,6 +32,7 @@ public class JukeboxListener implements Listener {
 
     private final Sound2Disc plugin;
     private final NamespacedKey SOUND_KEY;
+    private final Map<Location, ActiveDisc> activeJukeboxes = new HashMap<>();
 
     private static class ActiveDisc {
         final String soundKey;
@@ -40,8 +42,6 @@ public class JukeboxListener implements Listener {
             this.discItem = discItem;
         }
     }
-
-    private final Map<Location, ActiveDisc> activeJukeboxes = new HashMap<>();
 
     public JukeboxListener(Sound2Disc plugin) {
         this.plugin = plugin;
@@ -88,28 +88,41 @@ public class JukeboxListener implements Listener {
         boolean holdingCustomDisc = isCustomDisc(hand);
         boolean jukeboxHasCustom  = activeJukeboxes.containsKey(loc);
 
+        plugin.getLogger().info("[DEBUG] Jukebox clicked by " + player.getName());
+        plugin.getLogger().info("[DEBUG] holdingCustomDisc=" + holdingCustomDisc + " jukeboxHasCustom=" + jukeboxHasCustom);
+
         if (holdingCustomDisc) {
             event.setCancelled(true);
             String soundKey = getSoundKey(hand);
-            if (soundKey == null) return;
+            plugin.getLogger().info("[DEBUG] Sound key from disc: " + soundKey);
 
-            if (jukeboxHasCustom) {
-                ejectCustomDisc(block, null);
-            } else {
-                forceStopJukebox(block);
-            }
+            if (jukeboxHasCustom) ejectCustomDisc(block, null);
+            else forceStopJukebox(block);
 
             ItemStack discCopy = hand.clone();
             discCopy.setAmount(1);
-            if (player.getGameMode() != GameMode.CREATIVE) {
-                hand.setAmount(hand.getAmount() - 1);
-            }
+            if (player.getGameMode() != GameMode.CREATIVE) hand.setAmount(hand.getAmount() - 1);
 
             activeJukeboxes.put(loc, new ActiveDisc(soundKey, discCopy));
+
+            // Check if OGG file exists
+            File oggFile = new File(plugin.getDataFolder(), "sounds/" + soundKey + ".ogg");
+            plugin.getLogger().info("[DEBUG] OGG file exists: " + oggFile.exists() + " at " + oggFile.getAbsolutePath());
+
+            // Check resource pack
+            String packUrl = plugin.getResourcePackManager().getPackUrl();
+            plugin.getLogger().info("[DEBUG] Pack URL: " + packUrl);
+
+            // Log the exact sound string being played
+            String soundId = "sound2disc:" + soundKey;
+            plugin.getLogger().info("[DEBUG] Playing sound ID: " + soundId);
+
             playCustomSound(loc, soundKey);
 
             loc.getWorld().spawnParticle(Particle.NOTE, loc.clone().add(0.5, 1.2, 0.5), 6, 0.5, 0.3, 0.5, 0);
             player.sendMessage(ChatColor.GREEN + "♪ Now playing: " + ChatColor.WHITE + soundKey);
+            player.sendMessage(ChatColor.GRAY + "Sound ID: " + ChatColor.WHITE + soundId);
+            player.sendMessage(ChatColor.GRAY + "OGG exists: " + ChatColor.WHITE + oggFile.exists());
 
         } else if (jukeboxHasCustom && (hand == null || hand.getType() == Material.AIR)) {
             event.setCancelled(true);
@@ -129,10 +142,10 @@ public class JukeboxListener implements Listener {
     private void playCustomSound(Location loc, String soundKey) {
         float range = (float) plugin.getConfig().getDouble("jukebox-sound-range", 65.0);
         for (Player p : loc.getWorld().getPlayers()) {
-            if (p.getLocation().distance(loc) <= range) {
-                p.stopSound(SoundCategory.RECORDS);
-                p.playSound(loc, "sound2disc:" + soundKey, SoundCategory.RECORDS, 4.0f, 1.0f);
-            }
+            double dist = p.getLocation().distance(loc);
+            plugin.getLogger().info("[DEBUG] Sending sound to " + p.getName() + " (distance: " + String.format("%.1f", dist) + ")");
+            p.stopSound(SoundCategory.RECORDS);
+            p.playSound(loc, "sound2disc:" + soundKey, SoundCategory.RECORDS, 4.0f, 1.0f);
         }
     }
 
@@ -149,9 +162,7 @@ public class JukeboxListener implements Listener {
         Location loc = block.getLocation();
         float range = (float) plugin.getConfig().getDouble("jukebox-sound-range", 65.0);
         for (Player p : loc.getWorld().getPlayers()) {
-            if (p.getLocation().distance(loc) <= range) {
-                p.stopSound(SoundCategory.RECORDS);
-            }
+            if (p.getLocation().distance(loc) <= range) p.stopSound(SoundCategory.RECORDS);
         }
         if (block.getState() instanceof org.bukkit.block.Jukebox) {
             org.bukkit.block.Jukebox jb = (org.bukkit.block.Jukebox) block.getState();
@@ -165,9 +176,7 @@ public class JukeboxListener implements Listener {
     public void onBlockBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (block.getType() != Material.JUKEBOX) return;
-        if (activeJukeboxes.containsKey(block.getLocation())) {
-            ejectCustomDisc(block, null);
-        }
+        if (activeJukeboxes.containsKey(block.getLocation())) ejectCustomDisc(block, null);
     }
 
     public void stopAll() {
