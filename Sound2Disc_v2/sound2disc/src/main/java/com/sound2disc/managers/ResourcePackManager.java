@@ -18,7 +18,7 @@ public class ResourcePackManager {
     private final Set<String> registeredSounds = new LinkedHashSet<>();
     private com.sun.net.httpserver.HttpServer httpServer;
 
-    private static final String PACK_FORMAT   = "15";
+    private static final String PACK_FORMAT   = "46";
     private static final String PACK_FILENAME = "sound2disc_pack.zip";
 
     // Upload hosts tried in order
